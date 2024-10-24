@@ -1100,12 +1100,23 @@ public class WifiChipAidlImpl implements IWifiChip {
         }
     }
 
+    private static boolean shouldIgnoreDebugRingBufferLoggingRequests() {
+        // There's an MTE Wi-Fi HAL crash on Google Pixel devices that is triggered by
+        // debug ring buffer logging
+        return "google".equals(android.os.Build.BRAND) && android.os.Process.isMemoryTaggingSupported();
+    }
+
     /**
      * See comments for {@link IWifiChip#startLoggingToDebugRingBuffer(String, int, int, int)}
      */
     @Override
     public boolean startLoggingToDebugRingBuffer(String ringName, int verboseLevel,
             int maxIntervalInSec, int minDataSizeInBytes) {
+        if (shouldIgnoreDebugRingBufferLoggingRequests()) {
+            Log.d(TAG, "ignored startLoggingToDebugRingBuffer");
+            return false;
+        }
+
         final String methodStr = "startLoggingToDebugRingBuffer";
         synchronized (mLock) {
             try {
@@ -1127,6 +1138,11 @@ public class WifiChipAidlImpl implements IWifiChip {
      */
     @Override
     public boolean stopLoggingToDebugRingBuffer() {
+        if (shouldIgnoreDebugRingBufferLoggingRequests()) {
+            Log.d(TAG, "ignored stopLoggingToDebugRingBuffer");
+            return false;
+        }
+
         final String methodStr = "stopLoggingToDebugRingBuffer";
         synchronized (mLock) {
             try {
