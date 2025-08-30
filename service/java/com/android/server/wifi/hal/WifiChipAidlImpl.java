@@ -1093,9 +1093,9 @@ public class WifiChipAidlImpl implements IWifiChip {
 
     private static boolean shouldIgnoreDebugRingBufferLoggingRequests() {
         return switch (Build.DEVICE) {
-            // There's an MTE Wi-Fi HAL crash on 8th and 9th gen Pixel devices that is triggered by
+            // There's an MTE Wi-Fi HAL crash on 8th, 9th and 10th gen Pixel devices that is triggered by
             // debug ring buffer logging
-            case "shiba", "husky", "akita", "tokay", "caiman", "komodo", "comet", "tegu" -> true;
+            case "shiba", "husky", "akita", "tokay", "caiman", "komodo", "comet", "tegu", "frankel", "blazer", "mustang" -> true;
             default -> false;
         };
     }
