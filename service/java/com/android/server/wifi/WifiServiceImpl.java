@@ -1186,7 +1186,8 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                     new Handler(mWifiHandlerThread.getLooper()));
             updateLocationMode();
 
-            if (SdkLevel.isAtLeastT()) {
+            if (SdkLevel.isAtLeastT()
+                    && mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_UWB)) {
                 UwbManager uwbManager =
                         mContext.getSystemService(UwbManager.class);
                 if (uwbManager != null) {
@@ -1195,7 +1196,9 @@ public class WifiServiceImpl extends IWifiManager.Stub {
                 }
             }
 
-            if (SdkLevel.isAtLeastV()) {
+            if (SdkLevel.isAtLeastV()
+                    && mContext.getPackageManager().hasSystemFeature(
+                            PackageManager.FEATURE_THREAD_NETWORK)) {
                 ThreadNetworkManager threadManager =
                         mContext.getSystemService(ThreadNetworkManager.class);
                 if (threadManager != null) {

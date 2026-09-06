@@ -153,6 +153,8 @@ import android.net.Network;
 import android.net.NetworkStack;
 import android.net.TetheringManager;
 import android.net.Uri;
+import android.net.thread.ThreadNetworkController;
+import android.net.thread.ThreadNetworkManager;
 import android.net.wifi.BlockingOption;
 import android.net.wifi.CoexUnsafeChannel;
 import android.net.wifi.IActionListener;
@@ -250,6 +252,7 @@ import android.telephony.TelephonyManager;
 import android.util.ArrayMap;
 import android.util.ArraySet;
 import android.util.Pair;
+import android.uwb.UwbManager;
 
 import androidx.test.filters.SmallTest;
 
@@ -9122,6 +9125,65 @@ public class WifiServiceImplTest extends WifiBaseTest {
         verify(mWifiP2pConnection).handleBootCompleted();
         verify(mWifiCountryCode).registerListener(any(WifiCountryCode.ChangeListener.class));
         verify(mWifiDeviceStateChangeManager).handleBootCompleted();
+    }
+
+    @Test
+    public void testHandleBootCompletedWithoutUwbOrThread() {
+        verifyBootRadioCallbacks(false, false);
+    }
+
+    @Test
+    public void testHandleBootCompletedWithUwbOnly() {
+        verifyBootRadioCallbacks(true, false);
+    }
+
+    @Test
+    public void testHandleBootCompletedWithThreadOnly() {
+        verifyBootRadioCallbacks(false, true);
+    }
+
+    @Test
+    public void testHandleBootCompletedWithUwbAndThread() {
+        verifyBootRadioCallbacks(true, true);
+    }
+
+    private void verifyBootRadioCallbacks(boolean hasUwb, boolean hasThread) {
+        assumeTrue(SdkLevel.isAtLeastV());
+        when(mPackageManager.hasSystemFeature(PackageManager.FEATURE_UWB)).thenReturn(hasUwb);
+        when(mPackageManager.hasSystemFeature(PackageManager.FEATURE_THREAD_NETWORK))
+                .thenReturn(hasThread);
+        UwbManager uwbManager = mock(UwbManager.class);
+        ThreadNetworkManager threadManager = mock(ThreadNetworkManager.class);
+        ThreadNetworkController threadController = mock(ThreadNetworkController.class);
+        when(mContext.getSystemService(UwbManager.class)).thenReturn(uwbManager);
+        when(mContext.getSystemService(ThreadNetworkManager.class)).thenReturn(threadManager);
+        when(threadManager.getAllThreadNetworkControllers())
+                .thenReturn(Collections.singletonList(threadController));
+
+        mWifiServiceImpl.handleBootCompleted();
+        mLooper.dispatchAll();
+
+        verify(mContext, times(hasUwb ? 1 : 0)).getSystemService(UwbManager.class);
+        verify(mContext, times(hasThread ? 1 : 0)).getSystemService(ThreadNetworkManager.class);
+        if (hasUwb) {
+            ArgumentCaptor<UwbManager.AdapterStateCallback> callback =
+                    ArgumentCaptor.forClass(UwbManager.AdapterStateCallback.class);
+            verify(uwbManager).registerAdapterStateCallback(any(), callback.capture());
+            callback.getValue().onStateChanged(UwbManager.AdapterStateCallback.STATE_ENABLED_ACTIVE,
+                    UwbManager.AdapterStateCallback.STATE_CHANGED_REASON_SESSION_STARTED);
+            verify(mWifiMetrics).setLastUwbState(UwbManager.AdapterStateCallback.STATE_ENABLED_ACTIVE);
+        } else {
+            verifyNoMoreInteractions(uwbManager);
+        }
+        if (hasThread) {
+            ArgumentCaptor<ThreadNetworkController.StateCallback> callback =
+                    ArgumentCaptor.forClass(ThreadNetworkController.StateCallback.class);
+            verify(threadController).registerStateCallback(any(), callback.capture());
+            callback.getValue().onDeviceRoleChanged(ThreadNetworkController.DEVICE_ROLE_ROUTER);
+            verify(mWifiMetrics).setLastThreadDeviceRole(ThreadNetworkController.DEVICE_ROLE_ROUTER);
+        } else {
+            verifyNoMoreInteractions(threadManager, threadController);
+        }
     }
 
     /**
