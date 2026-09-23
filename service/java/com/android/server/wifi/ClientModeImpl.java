@@ -1739,7 +1739,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             // check every time the interface goes up and re-randomize if the failure was detected.
             if (mWifiGlobals.isConnectedMacRandomizationEnabled()) {
                 mFailedToResetMacAddress = !mWifiNative.setStaMacAddress(
-                        mInterfaceName, MacAddressUtils.createRandomUnicastAddress());
+                        mInterfaceName, getIdleInterfaceMac());
                 if (mFailedToResetMacAddress) {
                     Log.e(getTag(), "Failed to set random MAC address on interface up");
                 }
@@ -4577,9 +4577,11 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         }
         String currentMacString = mWifiNative.getMacAddress(mInterfaceName);
         MacAddress currentMac = NativeUtil.getMacAddressOrNull(currentMacString);
-        MacAddress newMac = mWifiConfigManager.getRandomizedMacAndUpdateIfNeeded(config,
-                isSecondaryInternet() && mClientModeManager.isSecondaryInternetDbsAp());
-        if (!WifiConfiguration.isValidMacAddressForRandomization(newMac)) {
+        MacAddress customMac = mWifiConfigManager.getCustomMacOverride(config);
+        MacAddress newMac = customMac != null ? customMac
+                : mWifiConfigManager.getRandomizedMacAndUpdateIfNeeded(config,
+                        isSecondaryInternet() && mClientModeManager.isSecondaryInternetDbsAp());
+        if (customMac == null && !WifiConfiguration.isValidMacAddressForRandomization(newMac)) {
             Log.wtf(getTag(), "Config generated an invalid MAC address");
         } else if (Objects.equals(newMac, currentMac)) {
             Log.d(getTag(), "No changes in MAC address");
@@ -4590,12 +4592,18 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             if (setMacSuccess) {
                 mWifiNative.removeNetworkCachedDataIfNeeded(config.networkId, newMac);
             }
-            if (mVerboseLoggingEnabled) {
+            if (mVerboseLoggingEnabled || customMac != null) {
                 Log.d(getTag(), "ConnectedMacRandomization SSID(" + config.getPrintableSsid()
                         + "). setMacAddress(" + newMac.toString() + ") from "
-                        + currentMacString + " = " + setMacSuccess);
+                        + currentMacString + " = " + setMacSuccess
+                        + (customMac != null ? " [custom]" : ""));
             }
         }
+    }
+
+    private MacAddress getIdleInterfaceMac() {
+        MacAddress custom = mWifiConfigManager.getCustomMacOverride();
+        return custom != null ? custom : MacAddressUtils.createRandomUnicastAddress();
     }
 
     /**
@@ -5003,7 +5011,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
                         if (getCurrentState() == mDisconnectedState) {
                             // Randomize MAC only if still not connected to wifi
                             mFailedToResetMacAddress = !mWifiNative.setStaMacAddress(
-                                    mInterfaceName, MacAddressUtils.createRandomUnicastAddress());
+                                    mInterfaceName, getIdleInterfaceMac());
                             if (mFailedToResetMacAddress) {
                                 Log.e(getTag(), "Failed to set random MAC address after delay");
                             }
@@ -5962,7 +5970,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             mWifiNative.disableNetwork(mInterfaceName);
             if (mWifiGlobals.isConnectedMacRandomizationEnabled()) {
                 mFailedToResetMacAddress = !mWifiNative.setStaMacAddress(
-                        mInterfaceName, MacAddressUtils.createRandomUnicastAddress());
+                        mInterfaceName, getIdleInterfaceMac());
                 if (mFailedToResetMacAddress) {
                     Log.e(getTag(), "Failed to set random MAC address on disconnect");
                 }
@@ -8628,7 +8636,9 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
 
         selectCandidateSecurityParamsIfNecessary(config, scanResults);
 
-        if (mWifiGlobals.isConnectedMacRandomizationEnabled()) {
+        if (mWifiConfigManager.getCustomMacOverride(config) != null) {
+            configureRandomizedMacAddress(config);
+        } else if (mWifiGlobals.isConnectedMacRandomizationEnabled()) {
             boolean isMacRandomizationForceDisabled = isMacRandomizationForceDisabledOnSsid(config);
             if (config.macRandomizationSetting == WifiConfiguration.RANDOMIZATION_NONE
                     || isMacRandomizationForceDisabled) {
