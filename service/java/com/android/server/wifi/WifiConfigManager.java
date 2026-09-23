@@ -549,6 +549,74 @@ public class WifiConfigManager {
         }
     }
 
+    public static final String CUSTOM_WIFI_MAC_SETTING = "custom_wifi_mac";
+    public static final String CUSTOM_WIFI_MAC_PER_NETWORK_SETTING = "custom_wifi_mac_per_network";
+
+    @Nullable
+    private static MacAddress parseCustomMac(String macString) {
+        if (TextUtils.isEmpty(macString)) {
+            return null;
+        }
+        try {
+            MacAddress mac = MacAddress.fromString(macString.trim());
+            byte[] b = mac.toByteArray();
+            boolean isMulticast = (b[0] & 0x01) != 0; // also covers broadcast ff:ff:ff:ff:ff:ff
+            boolean isAllZero = mac.equals(MacAddress.fromString("00:00:00:00:00:00"));
+            if (isMulticast || isAllZero || DEFAULT_MAC_ADDRESS.equals(mac)) {
+                Log.e(TAG, "Ignoring invalid custom MAC (multicast, all-zero or reserved): "
+                        + mac);
+                return null;
+            }
+            return mac;
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Ignoring malformed custom MAC: " + macString);
+            return null;
+        }
+    }
+
+    @Nullable
+    public MacAddress getCustomMacOverride() {
+        return parseCustomMac(
+                mFrameworkFacade.getStringSetting(mContext, CUSTOM_WIFI_MAC_SETTING));
+    }
+
+    @Nullable
+    public MacAddress getCustomMacOverride(@Nullable WifiConfiguration config) {
+        if (config != null && !TextUtils.isEmpty(config.SSID)) {
+            String map = mFrameworkFacade.getStringSetting(
+                    mContext, CUSTOM_WIFI_MAC_PER_NETWORK_SETTING);
+            if (!TextUtils.isEmpty(map)) {
+                for (String rawLine : map.split("\n")) {
+                    String line = rawLine.trim();
+                    int eq = line.lastIndexOf('=');
+                    if (eq <= 0) continue;
+                    if (ssidKeysMatch(config.SSID, line.substring(0, eq).trim())) {
+                        MacAddress perNetwork = parseCustomMac(line.substring(eq + 1));
+                        Log.d(TAG, "Custom MAC lookup for " + config.SSID + " -> " + perNetwork);
+                        if (perNetwork != null) {
+                            return perNetwork;
+                        }
+                        break;
+                    }
+                }
+                Log.d(TAG, "Custom MAC lookup: no per-network entry matched SSID ["
+                        + config.SSID + "] in map [" + map.replace("\n", " | ") + "]");
+            }
+        }
+        return getCustomMacOverride();
+    }
+
+    private static boolean ssidKeysMatch(String a, String b) {
+        return stripQuotes(a).equals(stripQuotes(b));
+    }
+
+    private static String stripQuotes(String s) {
+        if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\"")) {
+            return s.substring(1, s.length() - 1);
+        }
+        return s;
+    }
+
     /**
      * Determine if the framework should perform non-persistent MAC randomization when connecting
      * to the SSID or FQDN in the input WifiConfiguration.
@@ -556,6 +624,9 @@ public class WifiConfigManager {
      * @return
      */
     public boolean shouldUseNonPersistentRandomization(WifiConfiguration config) {
+        if (getCustomMacOverride(config) != null) {
+            return false;
+        }
         if (config.macRandomizationSetting == WifiConfiguration.RANDOMIZATION_ALWAYS) {
             return true;
         }
@@ -636,6 +707,10 @@ public class WifiConfigManager {
      */
     @VisibleForTesting
     public MacAddress getPersistentMacAddress(WifiConfiguration config) {
+        MacAddress customMac = getCustomMacOverride(config);
+        if (customMac != null) {
+            return customMac;
+        }
         // mRandomizedMacAddressMapping had been the location to save randomized MAC addresses.
         String persistentMacString = mRandomizedMacAddressMapping.get(
                 config.getNetworkKey());
