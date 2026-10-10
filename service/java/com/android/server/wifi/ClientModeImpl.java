@@ -1738,8 +1738,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             // re-randomize the MAC address of the interface since it's undergoing recovery. Thus,
             // check every time the interface goes up and re-randomize if the failure was detected.
             if (mWifiGlobals.isConnectedMacRandomizationEnabled()) {
-                mFailedToResetMacAddress = !mWifiNative.setStaMacAddress(
-                        mInterfaceName, getIdleInterfaceMac());
+                mFailedToResetMacAddress = !applyIdleInterfaceMac();
                 if (mFailedToResetMacAddress) {
                     Log.e(getTag(), "Failed to set random MAC address on interface up");
                 }
@@ -4587,8 +4586,9 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             Log.d(getTag(), "No changes in MAC address");
         } else {
             mWifiMetrics.logStaEvent(mInterfaceName, StaEvent.TYPE_MAC_CHANGE, config);
-            boolean setMacSuccess =
-                    mWifiNative.setStaMacAddress(mInterfaceName, newMac);
+            boolean setMacSuccess = customMac != null
+                    ? setStaMacWithRetry(newMac)
+                    : mWifiNative.setStaMacAddress(mInterfaceName, newMac);
             if (setMacSuccess) {
                 mWifiNative.removeNetworkCachedDataIfNeeded(config.networkId, newMac);
             }
@@ -4601,9 +4601,29 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
         }
     }
 
-    private MacAddress getIdleInterfaceMac() {
+    private boolean setStaMacWithRetry(MacAddress mac) {
+        for (int i = 0; i < 3; i++) {
+            if (mWifiNative.setStaMacAddress(mInterfaceName, mac)) {
+                return true;
+            }
+            Log.w(getTag(), "setStaMacAddress(" + mac + ") failed, attempt " + (i + 1));
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return false;
+    }
+
+    private boolean applyIdleInterfaceMac() {
         MacAddress custom = mWifiConfigManager.getCustomMacOverride();
-        return custom != null ? custom : MacAddressUtils.createRandomUnicastAddress();
+        if (custom != null && mWifiNative.setStaMacAddress(mInterfaceName, custom)) {
+            return true;
+        }
+        return mWifiNative.setStaMacAddress(
+                mInterfaceName, MacAddressUtils.createRandomUnicastAddress());
     }
 
     /**
@@ -5010,8 +5030,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
                         mMacRandomizationPending = false;
                         if (getCurrentState() == mDisconnectedState) {
                             // Randomize MAC only if still not connected to wifi
-                            mFailedToResetMacAddress = !mWifiNative.setStaMacAddress(
-                                    mInterfaceName, getIdleInterfaceMac());
+                            mFailedToResetMacAddress = !applyIdleInterfaceMac();
                             if (mFailedToResetMacAddress) {
                                 Log.e(getTag(), "Failed to set random MAC address after delay");
                             }
@@ -5969,8 +5988,7 @@ public class ClientModeImpl extends StateMachine implements ClientMode {
             // 2. Set a random MAC address to ensure that we're not leaking the MAC address.
             mWifiNative.disableNetwork(mInterfaceName);
             if (mWifiGlobals.isConnectedMacRandomizationEnabled()) {
-                mFailedToResetMacAddress = !mWifiNative.setStaMacAddress(
-                        mInterfaceName, getIdleInterfaceMac());
+                mFailedToResetMacAddress = !applyIdleInterfaceMac();
                 if (mFailedToResetMacAddress) {
                     Log.e(getTag(), "Failed to set random MAC address on disconnect");
                 }
