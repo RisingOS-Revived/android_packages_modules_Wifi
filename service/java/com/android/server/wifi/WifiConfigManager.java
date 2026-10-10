@@ -574,14 +574,29 @@ public class WifiConfigManager {
         }
     }
 
+    private boolean isUserSetupComplete() {
+        try {
+            return Settings.Secure.getInt(mContext.getContentResolver(),
+                    Settings.Secure.USER_SETUP_COMPLETE, 0) != 0;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     @Nullable
     public MacAddress getCustomMacOverride() {
+        if (!isUserSetupComplete()) {
+            return null;
+        }
         return parseCustomMac(
                 mFrameworkFacade.getStringSetting(mContext, CUSTOM_WIFI_MAC_SETTING));
     }
 
     @Nullable
     public MacAddress getCustomMacOverride(@Nullable WifiConfiguration config) {
+        if (!isUserSetupComplete()) {
+            return null;
+        }
         if (config != null && !TextUtils.isEmpty(config.SSID)) {
             String map = mFrameworkFacade.getStringSetting(
                     mContext, CUSTOM_WIFI_MAC_PER_NETWORK_SETTING);
@@ -592,15 +607,12 @@ public class WifiConfigManager {
                     if (eq <= 0) continue;
                     if (ssidKeysMatch(config.SSID, line.substring(0, eq).trim())) {
                         MacAddress perNetwork = parseCustomMac(line.substring(eq + 1));
-                        Log.d(TAG, "Custom MAC lookup for " + config.SSID + " -> " + perNetwork);
                         if (perNetwork != null) {
                             return perNetwork;
                         }
                         break;
                     }
                 }
-                Log.d(TAG, "Custom MAC lookup: no per-network entry matched SSID ["
-                        + config.SSID + "] in map [" + map.replace("\n", " | ") + "]");
             }
         }
         return getCustomMacOverride();
